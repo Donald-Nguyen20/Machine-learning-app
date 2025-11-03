@@ -13,6 +13,9 @@ from ML_TAB.Steps.Step7.Load_and_Deployment import predict_from_model
 from ML_TAB.Steps.Step1.data_collection import load_rawdata
 from ML_TAB.Steps.Step2.profile_report import generate_profile_json
 # from ML_TAB.Steps.Step2.dashboard_widget import ProfileDashboard
+from PySide6.QtWidgets import QLabel, QDoubleSpinBox, QPushButton
+from ML_TAB.Steps.Step3.outlier_tools import (detect_outliers_iqr, detect_outliers_zscore, detect_outliers_isoforest, detect_outliers_lof,)
+from ML_TAB.Steps.Step3.outlier_dialog import OutlierResultsDialog
 
 
 
@@ -77,17 +80,43 @@ class MLApplicationTab(QWidget):
         self.cards: list[StepCard] = []
 
         for cfg in steps:
-            # Lưu ý: StepCard phải có objectName="StepCard" ở lớp widget (đã sửa ở widgets/step_card.py)
-            # Nếu StepCard không nhận tham số role, ta gán property trực tiếp:
             card = StepCard(cfg["step"], cfg["title"], cfg["sub"], parent=self)
-            card.setProperty("variant", cfg["role"])   # step1..step7 cho QSS bắt màu
+            card.setProperty("variant", cfg["role"])
             card.setFixedSize(CARD_W, CARD_H)
 
-            # Căn top để các card thẳng hàng
-            self.h.addWidget(card, 0, Qt.AlignTop)
+            if cfg["step"] == 3:
+                # === CỘT STEP 3: card ở trên, NÚT CON ở dưới (cùng size) ===
+                box = QFrame(self)
+                vlay = QVBoxLayout(box)
+                vlay.setContentsMargins(0, 0, 0, 0)
+                vlay.setSpacing(10)
 
-            card.clicked.connect(self._on_step_clicked)
+                # 3.1) Step 3 card (giữ như cũ)
+                vlay.addWidget(card, 0, Qt.AlignTop)
+
+                # 3.2) Nút con “Detect Outlier” — CHỈ THIẾT KẾ, CHƯA GẮN GÌ
+                btn = QPushButton("Detect Outlier", box)
+                btn.setObjectName("btnDetectOutlier")
+                btn.setFixedSize(CARD_W, CARD_H)     # kích thước BẰNG Step 3
+                vlay.addWidget(btn, 0, Qt.AlignTop)
+                btn.clicked.connect(self._on_detect_outlier)
+
+                # Đưa CỘT Step 3 (card + nút con) vào hàng ngang self.h
+                self.h.addWidget(box, 0, Qt.AlignTop)
+
+                # Giữ hành vi click của Step 3 card như cũ
+                card.clicked.connect(self._on_step_clicked)
+
+                # (tuỳ chọn) lưu tham chiếu nếu cần dùng sau
+                self.btnDetectOutlier = btn
+
+            else:
+                # Các step khác giữ nguyên: chỉ có card
+                self.h.addWidget(card, 0, Qt.AlignTop)
+                card.clicked.connect(self._on_step_clicked)
+
             self.cards.append(card)
+
 
     def _on_step_clicked(self, step_no: int):
         # === STEP 1: Data collection ===
@@ -164,4 +193,27 @@ class MLApplicationTab(QWidget):
             )
         except Exception:
             QMessageBox.critical(self, "Lỗi", traceback.format_exc())
-  
+    def _on_detect_outlier(self):
+        if getattr(self, "Rawdata", None) is None:
+            QMessageBox.warning(self, "Chưa có dữ liệu", "Hãy chạy Step 1 để nạp dữ liệu trước.")
+            return
+
+        df = self.Rawdata
+        try:
+            # bạn có thể điều chỉnh tham số tại đây:
+            iqr_df   = detect_outliers_iqr(df, factor=1.5)              # per-column outliers
+            zs_df    = detect_outliers_zscore(df, z=3.0)                 # per-column outliers
+            iso_df   = detect_outliers_isoforest(df, contamination=0.05) # row-level outliers
+            lof_df   = detect_outliers_lof(df, n_neighbors=20, contamination=0.05)
+
+
+            dlg = OutlierResultsDialog(self)
+            dlg.add_tab("IQR", iqr_df)
+            dlg.add_tab("Z-score", zs_df)
+            dlg.add_tab("IsolationForest", iso_df)
+            dlg.add_tab("LOF", lof_df) 
+
+            dlg.exec()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi Detect Outlier", str(e))

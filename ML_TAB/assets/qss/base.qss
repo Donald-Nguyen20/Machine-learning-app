@@ -17,3 +17,18 @@
 #MLDashboardWindow #mlViewport  { background: #f5f7fb; }
 #MLDashboardWindow #mlScroll    { background: transparent; border: none; }
 #MLDashboardWindow #mlContainer { background: transparent; }
+#btnDetectOutlier {
+  background: #ffe2de;                  /* cùng palette step3 */
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 14px;                  /* bo mềm hơn chút */
+  font-weight: 700;
+  font-size: 13.5pt;                    /* chữ to hơn rõ */
+  padding: 6px 16px;                    /* giảm chiều cao, mở ngang */
+  min-height: 42px;                     /* thấp hơn StepCard */
+  min-width: 180px;                     /* vừa phải, không quá dài */
+}
+#btnDetectOutlier:hover {
+  border-color: rgba(0,0,0,0.25);
+  background: #ff8f86;                  /* hover sáng hơn nhẹ */
+}
+
