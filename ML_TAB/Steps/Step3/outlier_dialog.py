@@ -35,31 +35,47 @@ class OutlierResultsDialog(QDialog):
         widget = QWidget(self)
         v = QVBoxLayout(widget)
 
+        base_headers = ["row_index", "timestamp", "column", "value", "score", "method"]
+        headers = base_headers.copy()
+
+        # Nếu là tab Isolation Forest và có cột causes -> hiển thị thêm
+        has_causes = (df is not None) and ("causes" in df.columns)
+        if has_causes and ("isolation" in name.lower() or "iso" in name.lower()):
+            headers.append("causes")
+
         table = QTableWidget(widget)
-        table.setColumnCount(6)
-        table.setHorizontalHeaderLabels(
-            ["row_index", "timestamp", "column", "value", "score", "method"]
-        )
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
 
         if df is not None and not df.empty:
             table.setRowCount(len(df))
             for r, (_, row) in enumerate(df.iterrows()):
-                vals = [
-                    row.get("row_index", ""),
-                    str(row.get("timestamp", "")),
-                    row.get("column", ""),
-                    "" if pd.isna(row.get("value", None)) else str(row.get("value", "")),
-                    "" if pd.isna(row.get("score", None)) else f"{row.get('score', ''):.6f}" if isinstance(row.get("score", None),(int,float)) else str(row.get("score","")),
-                    row.get("method", ""),
-                ]
+                vals = []
+                for h in headers:
+                    if h == "score":
+                        val = row.get("score", "")
+                        if isinstance(val, (int, float)) and not pd.isna(val):
+                            vals.append(f"{val:.6f}")
+                        else:
+                            vals.append("" if pd.isna(val) else str(val))
+                    elif h == "value":
+                        val = row.get("value", "")
+                        vals.append("" if pd.isna(val) else str(val))
+                    elif h == "timestamp":
+                        vals.append(str(row.get("timestamp", "")))
+                    else:
+                        vals.append(row.get(h, ""))
+
                 for c, val in enumerate(vals):
                     item = QTableWidgetItem(str(val))
-                    if c in (0,4):  # row_index, score
+                    if headers[c] in ("row_index", "score"):
                         item.setTextAlignment(Qt.AlignCenter)
                     table.setItem(r, c, item)
+
             table.resizeColumnsToContents()
         else:
             table.setRowCount(0)
 
         v.addWidget(table)
         self.tabs.addTab(widget, name)
+

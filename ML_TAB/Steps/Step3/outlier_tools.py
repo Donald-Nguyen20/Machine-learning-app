@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
@@ -104,29 +104,79 @@ def detect_outliers_isoforest(
     contamination: float = 0.05,
     random_state: int = 42,
     timestamp_col: Optional[str] = None,
+    n_estimators: int = 200,
+    topk: int = 3,                  # NEW: số biến giải thích
+    return_json: bool = True        # NEW: thêm cột causes_json
 ) -> pd.DataFrame:
+    """
+    Phát hiện outlier bằng IsolationForest và giải thích đa-biến bằng robust-z (top-k).
+    Trả về DataFrame có các cột:
+    row_index | timestamp | column | value | score | method | causes | (optional) causes_json
+    """
     cols = _numeric_columns(df, columns)
     if not cols:
         return _mk_result_df([])
-    ts_col = _infer_timestamp_col(df, timestamp_col)
 
+    ts_col = _infer_timestamp_col(df, timestamp_col)
     X = df[cols].astype(float)
+
     iso = IsolationForest(
         contamination=contamination,
         random_state=random_state,
-        n_estimators=200,
+        n_estimators=n_estimators,
         n_jobs=-1
     )
-    pred = iso.fit_predict(X)            # -1 là outlier
+    pred = iso.fit_predict(X)            # 1 bình thường, -1 outlier
     scores = iso.decision_function(X)    # càng nhỏ càng bất thường
 
+    # --- robust center & scale cho giải thích ---
+    med = X.median(axis=0)
+    mad = (X - med).abs().median(axis=0)
+    eps = 1e-9
+    scale = 1.4826 * mad + eps
+
     rows: List[Tuple[int, Optional[object], str, object, float, str]] = []
+    causes_col: List[str] = []
+    causes_json_col: List[List[Dict[str, Any]]] = []
+
     mask = (pred == -1)
     if mask.any():
         for idx in df.index[mask]:
             ts = df.loc[idx, ts_col] if (ts_col and ts_col in df.columns) else None
-            rows.append((int(idx), ts, "<row>", None, float(scores[df.index.get_loc(idx)]), "ISOFOR"))
-    return _mk_result_df(rows)
+            i = df.index.get_loc(idx)
+
+            # robust-z từng biến cho dòng outlier
+            x = X.loc[idx, cols]
+            rz = ((x - med) / scale).abs()
+            rz = rz.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+            # chọn top-k biến
+            top = rz.nlargest(max(1, topk))
+            causes_list = []
+            for feat in top.index:
+                causes_list.append({
+                    "feature": feat,
+                    "value": float(x[feat]),
+                    "robust_z": float(top[feat])
+                })
+
+            # chuỗi gọn cho hiển thị
+            causes_str = ", ".join(
+                f"{c['feature']}={c['value']:.6g} (|rz|={c['robust_z']:.2f})"
+                for c in causes_list
+            )
+
+            rows.append((int(idx), ts, "<row>", None, float(scores[i]), "ISOFOR"))
+            causes_col.append(causes_str)
+            causes_json_col.append(causes_list)
+
+    out = _mk_result_df(rows)
+    if not out.empty:
+        out = out.reset_index(drop=True)
+        out["causes"] = causes_col
+        if return_json:
+            out["causes_json"] = causes_json_col
+    return out
 
 # ---------- Detector 4: LOF ----------
 def detect_outliers_lof(
@@ -153,3 +203,29 @@ def detect_outliers_lof(
             score = float(scores[df.index.get_loc(idx)])
             rows.append((int(idx), ts, "<row>", None, score, "LOF"))
     return _mk_result_df(rows)
+
+def combine_outlier_results(
+    df_iqr: pd.DataFrame,
+    df_z: pd.DataFrame,
+    how: str = "intersection"
+) -> pd.DataFrame:
+    """
+    Kết hợp kết quả giữa hai phương pháp outlier (IQR & Z-score).
+    how = 'intersection' -> lấy giao (các dòng cùng bị gắn cờ ở cả hai)
+    how = 'union' -> lấy hợp (bị gắn cờ ở ít nhất một trong hai)
+    """
+    if df_iqr.empty and df_z.empty:
+        return pd.DataFrame(columns=df_iqr.columns)
+
+    if how == "intersection":
+        idx = set(df_iqr["row_index"]) & set(df_z["row_index"])
+    elif how == "union":
+        idx = set(df_iqr["row_index"]) | set(df_z["row_index"])
+    else:
+        raise ValueError("how must be 'intersection' or 'union'")
+
+    # Lấy các dòng từ df_iqr để hiển thị, gắn thêm cờ nguồn
+    df_comb = df_iqr[df_iqr["row_index"].isin(idx)].copy()
+    df_comb["source"] = "IQR ∩ Z-score"
+
+    return df_comb

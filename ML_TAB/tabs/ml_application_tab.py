@@ -14,7 +14,7 @@ from ML_TAB.Steps.Step1.data_collection import load_rawdata
 from ML_TAB.Steps.Step2.profile_report import generate_profile_json
 # from ML_TAB.Steps.Step2.dashboard_widget import ProfileDashboard
 from PySide6.QtWidgets import QLabel, QDoubleSpinBox, QPushButton
-from ML_TAB.Steps.Step3.outlier_tools import (detect_outliers_iqr, detect_outliers_zscore, detect_outliers_isoforest, detect_outliers_lof,)
+from ML_TAB.Steps.Step3.outlier_tools import (detect_outliers_iqr, detect_outliers_zscore, detect_outliers_isoforest, detect_outliers_lof,combine_outlier_results,)
 from ML_TAB.Steps.Step3.outlier_dialog import OutlierResultsDialog
 
 
@@ -205,9 +205,13 @@ class MLApplicationTab(QWidget):
             zs_df    = detect_outliers_zscore(df, z=3.0)                 # per-column outliers
             iso_df   = detect_outliers_isoforest(df, contamination=0.05) # row-level outliers
             lof_df   = detect_outliers_lof(df, n_neighbors=20, contamination=0.05)
-
+            df_inter = combine_outlier_results(iqr_df, zs_df, how="intersection")  # chỉ đánh dấu outlier chung
+            if df_inter is not None and not df_inter.empty:
+                df_inter = df_inter.copy()
+                df_inter["method"] = "IQR + Z-Score"
 
             dlg = OutlierResultsDialog(self)
+            dlg.add_tab("IQR + Z-Score", df_inter)
             dlg.add_tab("IQR", iqr_df)
             dlg.add_tab("Z-score", zs_df)
             dlg.add_tab("IsolationForest", iso_df)
