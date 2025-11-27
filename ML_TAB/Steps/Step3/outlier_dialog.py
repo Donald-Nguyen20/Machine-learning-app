@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 import pandas as pd
 
+
 class OutlierResultsDialog(QDialog):
     """
     Hiển thị 3 tab kết quả outlier (IQR / Z-score / IsolationForest)
@@ -16,9 +17,75 @@ class OutlierResultsDialog(QDialog):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("OutlierDialog")
         self.setWindowTitle("Outlier Detection — Results")
         self.resize(1000, 620)
 
+        # ========== THEME XANH CHO DIALOG + BẢNG ==========
+        # Nền dialog: xanh dương rất nhạt
+        # Bảng: xanh mint giống Step 6 (#e6fff5, #7fe8c4)
+        self.setStyleSheet("""
+        /* NỀN & KHUNG DIALOG */
+        #OutlierDialog {
+            background-color: #eaf3ff;            /* xanh dương rất nhạt */
+        }
+
+        /* NÚT CLOSE */
+        #OutlierDialog QPushButton {
+            background-color: #a9c7ff;
+            color: #111;
+            border: 1px solid #7ea9ff;
+            border-radius: 6px;
+            padding: 4px 12px;
+        }
+        #OutlierDialog QPushButton:hover {
+            background-color: #7ea9ff;
+        }
+
+        /* TAB BAR PHƯƠNG PHÁP OUTLIER */
+        #OutlierDialog QTabWidget::pane {
+            background: transparent;
+            border: none;
+        }
+
+        #OutlierDialog QTabBar::tab {
+            background-color: #a9c7ff;
+            color: #111;
+            padding: 6px 14px;
+            border-radius: 8px 8px 0 0;
+            margin-right: 4px;
+            min-width: 90px;
+        }
+        #OutlierDialog QTabBar::tab:selected {
+            background-color: #7ea9ff;
+            font-weight: 600;
+        }
+        #OutlierDialog QTabBar::tab:hover {
+            background-color: #8fb8ff;
+        }
+
+        /* BẢNG KẾT QUẢ – XANH MINT */
+        #OutlierDialog QTableWidget {
+            background-color: #e6fff5;            /* nền mint nhạt */
+            alternate-background-color: #f4fffb;  /* hàng xen kẽ sáng hơn */
+            color: #111;
+            gridline-color: #7fe8c4;              /* kẻ ô xanh mint đậm */
+            border: 1px solid #7fe8c4;
+            selection-background-color: #a5f3fc;  /* chọn hàng: xanh cyan nhạt */
+            selection-color: #111;
+        }
+
+        #OutlierDialog QHeaderView::section {
+            background-color: #7fe8c4;            /* header xanh mint đậm hơn */
+            color: #111;
+            padding: 4px 6px;
+            border: 0;
+            border-right: 1px solid #e6fff5;
+            font-weight: 600;
+        }
+        """)
+
+        # ========== LAYOUT ==========
         outer = QVBoxLayout(self)
 
         header = QHBoxLayout()
@@ -46,6 +113,7 @@ class OutlierResultsDialog(QDialog):
         table = QTableWidget(widget)
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
+        table.setAlternatingRowColors(True)   # dùng alternate-background-color ở trên
 
         if df is not None and not df.empty:
             table.setRowCount(len(df))
@@ -78,4 +146,3 @@ class OutlierResultsDialog(QDialog):
 
         v.addWidget(table)
         self.tabs.addTab(widget, name)
-

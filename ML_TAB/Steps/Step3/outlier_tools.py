@@ -211,21 +211,53 @@ def combine_outlier_results(
 ) -> pd.DataFrame:
     """
     Kết hợp kết quả giữa hai phương pháp outlier (IQR & Z-score).
-    how = 'intersection' -> lấy giao (các dòng cùng bị gắn cờ ở cả hai)
-    how = 'union' -> lấy hợp (bị gắn cờ ở ít nhất một trong hai)
+
+    - how = 'intersection':
+        GIAO chuẩn theo (row_index, column):
+        Chỉ giữ những ô (row_index, column) cùng bị gắn cờ
+        ở cả IQR lẫn Z-score.
+
+    - how = 'union':
+        HỢP theo (row_index, column):
+        Giữ những ô bị gắn cờ bởi IQR HOẶC Z-score (hoặc cả hai).
     """
+    # Cả 2 đều rỗng -> trả về DataFrame rỗng với đúng schema
     if df_iqr.empty and df_z.empty:
         return pd.DataFrame(columns=df_iqr.columns)
 
+    key = ["row_index", "column"]
+
     if how == "intersection":
-        idx = set(df_iqr["row_index"]) & set(df_z["row_index"])
+        # Nếu 1 trong 2 rỗng thì giao chuẩn = rỗng
+        if df_iqr.empty or df_z.empty:
+            return pd.DataFrame(columns=df_iqr.columns)
+
+        # GIAO chuẩn theo (row_index, column):
+        # chỉ giữ các ô xuất hiện trong cả df_iqr và df_z
+        df_comb = df_iqr.merge(
+            df_z[key].drop_duplicates(),
+            on=key,
+            how="inner",
+        )
+        if df_comb.empty:
+            return pd.DataFrame(columns=df_iqr.columns)
+
+        # Đảm bảo cột & thứ tự giống df_iqr, đổi method + source
+        df_comb = df_comb[df_iqr.columns]
+        df_comb["method"] = "IQR + Z-Score"
+        df_comb["source"] = "IQR ∩ Z-score"
+
     elif how == "union":
-        idx = set(df_iqr["row_index"]) | set(df_z["row_index"])
+        # HỢP theo (row_index, column): gộp cả 2, bỏ trùng ô
+        both = pd.concat([df_iqr, df_z], ignore_index=True)
+        if both.empty:
+            return pd.DataFrame(columns=df_iqr.columns)
+
+        both = both.drop_duplicates(subset=key)
+        df_comb = both.copy()
+        df_comb["source"] = "IQR ∪ Z-score"
     else:
         raise ValueError("how must be 'intersection' or 'union'")
 
-    # Lấy các dòng từ df_iqr để hiển thị, gắn thêm cờ nguồn
-    df_comb = df_iqr[df_iqr["row_index"].isin(idx)].copy()
-    df_comb["source"] = "IQR ∩ Z-score"
-
     return df_comb
+
