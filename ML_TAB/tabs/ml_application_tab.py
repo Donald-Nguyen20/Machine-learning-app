@@ -8,14 +8,27 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QHBoxLayout,
     QFileDialog, QMessageBox, QFrame
 )
+import pandas as pd
 from ML_TAB.widgets.step_card import StepCard
 from ML_TAB.Steps.Step7.Load_and_Deployment import predict_from_model
 from ML_TAB.Steps.Step1.data_collection import load_rawdata
 from ML_TAB.Steps.Step2.profile_report import generate_profile_json
 # from ML_TAB.Steps.Step2.dashboard_widget import ProfileDashboard
 from PySide6.QtWidgets import QLabel, QDoubleSpinBox, QPushButton
-from ML_TAB.Steps.Step3.outlier_tools import (detect_outliers_iqr, detect_outliers_zscore, detect_outliers_isoforest, detect_outliers_lof,combine_outlier_results,)
+from ML_TAB.Steps.Step3.outlier_tools import (
+    detect_outliers_iqr,
+    detect_outliers_zscore,
+    detect_outliers_modified_zscore,
+    detect_outliers_isoforest,
+    detect_outliers_lof,
+    detect_outliers_ecod,
+    detect_outliers_copod,
+    detect_outliers_knn,
+    combine_outlier_results,
+)
+
 from ML_TAB.Steps.Step3.outlier_dialog import OutlierResultsDialog
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 
 
@@ -52,6 +65,8 @@ class MLApplicationTab(QWidget):
         vp.setAttribute(Qt.WA_StyledBackground, True)  # Quan trọng để nền QSS có hiệu lực
 
         self.Rawdata = None   # <-- THÊM: lưu DataFrame cho các bước sau dùng
+        self.raw_df: pd.DataFrame | None = None
+        self.cleaned_df: pd.DataFrame | None = None
 
         # HBox chứa các StepCard
         self.h = QHBoxLayout(container)
@@ -133,6 +148,10 @@ class MLApplicationTab(QWidget):
 
                 # Đọc dữ liệu về DataFrame
                 self.Rawdata = load_rawdata(path)
+                # Gán cho raw_df & cleaned_df để dùng cho bước clean
+                self.raw_df = self.Rawdata.copy()
+                self.cleaned_df = self.Rawdata.copy()
+
 
                 # Thông báo kết quả (5 dòng đầu, shape)
                 head_info = self.Rawdata.head(5).to_string(index=False)
@@ -194,30 +213,69 @@ class MLApplicationTab(QWidget):
         except Exception:
             QMessageBox.critical(self, "Lỗi", traceback.format_exc())
     def _on_detect_outlier(self):
-        if getattr(self, "Rawdata", None) is None:
+        # 1) Kiểm tra dữ liệu
+        if self.raw_df is None and self.Rawdata is None:
             QMessageBox.warning(self, "Chưa có dữ liệu", "Hãy chạy Step 1 để nạp dữ liệu trước.")
             return
 
-        df = self.Rawdata
+        # Ưu tiên raw_df nếu có, fallback sang Rawdata
+        raw_df = self.raw_df if self.raw_df is not None else self.Rawdata
+
+        # Nếu chưa có cleaned_df thì khởi tạo từ raw_df
+        if self.cleaned_df is None:
+            self.cleaned_df = raw_df.copy()
+
+        # 👉 Luôn detect trên cleaned_df hiện tại
+        df = self.cleaned_df
+
         try:
-            # bạn có thể điều chỉnh tham số tại đây:
-            iqr_df   = detect_outliers_iqr(df, factor=1.5)              # per-column outliers
-            zs_df    = detect_outliers_zscore(df, z=3.0)                 # per-column outliers
-            iso_df   = detect_outliers_isoforest(df, contamination=0.05) # row-level outliers
+            # 2) Tính outlier trên df
+            iqr_df   = detect_outliers_iqr(df, factor=1.5)
+            zs_df    = detect_outliers_zscore(df, z=3.0)
+            modz_df  = detect_outliers_modified_zscore(df, threshold=3.5)
+
+            iso_df   = detect_outliers_isoforest(df, contamination=0.05)
             lof_df   = detect_outliers_lof(df, n_neighbors=20, contamination=0.05)
-            df_inter = combine_outlier_results(iqr_df, zs_df, how="intersection")  # chỉ đánh dấu outlier chung
+
+            ecod_df  = detect_outliers_ecod(df, contamination=0.05)
+            copod_df = detect_outliers_copod(df, contamination=0.05)
+            knn_df   = detect_outliers_knn(df, n_neighbors=20, contamination=0.05)
+
+            df_inter = combine_outlier_results(iqr_df, zs_df, how="intersection")
             if df_inter is not None and not df_inter.empty:
                 df_inter = df_inter.copy()
                 df_inter["method"] = "IQR + Z-Score"
 
+            # 3) Hiển thị dialog
             dlg = OutlierResultsDialog(self)
             dlg.add_tab("IQR + Z-Score", df_inter)
             dlg.add_tab("IQR", iqr_df)
             dlg.add_tab("Z-score", zs_df)
+            dlg.add_tab("Modified Z-score", modz_df)
             dlg.add_tab("IsolationForest", iso_df)
-            dlg.add_tab("LOF", lof_df) 
+            dlg.add_tab("LOF", lof_df)
+            dlg.add_tab("ECOD", ecod_df)
+            dlg.add_tab("COPOD", copod_df)
+            dlg.add_tab("KNN", knn_df)
 
-            dlg.exec()
+            result = dlg.exec()
+
+            # 4) Chỉ khi bấm Delete mới ghi đè Cleaned
+            if result == QDialog.Accepted and getattr(dlg, "rows_to_delete", []):
+                rows_to_delete = dlg.rows_to_delete
+
+                # Xóa trên chính cleaned_df hiện tại
+                cleaned = self.cleaned_df.drop(index=rows_to_delete, errors="ignore").copy()
+
+                self.cleaned_df = cleaned
+
+                QMessageBox.information(
+                    self,
+                    "Cleaning applied",
+                    f"Đã xoá {len(rows_to_delete)} dòng outlier.\n"
+                    f'DataFrame cleaned_df đã được cập nhật cho các bước tiếp theo.'
+                )
 
         except Exception as e:
             QMessageBox.critical(self, "Lỗi Detect Outlier", str(e))
+

@@ -1,20 +1,39 @@
 # ML_TAB/Steps/Step3/outlier_dialog.py
 from __future__ import annotations
-from typing import Optional
+
+from typing import Optional, List
+
+import pandas as pd
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QTabWidget, QWidget, QTableWidget,
-    QTableWidgetItem, QHBoxLayout, QLabel, QPushButton
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QMessageBox,
+    QComboBox,
 )
-import pandas as pd
 
 
 class OutlierResultsDialog(QDialog):
     """
-    Hiển thị 3 tab kết quả outlier (IQR / Z-score / IsolationForest)
-    Mỗi tab là QTableWidget với các cột:
-    row_index | timestamp | column | value | score | method
+    Dialog hiển thị kết quả phát hiện outlier ở nhiều tab (IQR + Z-Score, IQR, Z-Score,
+    IsolationForest, LOF...).
+
+    - Mỗi tab là một QTableWidget.
+    - Cột 'row_index' có checkbox để chọn những dòng muốn xoá.
+    - Khi bấm 'Delete selected rows', dialog sẽ:
+        + Gom tất cả row_index được tick ở mọi tab
+        + Lưu vào self.rows_to_delete (list[int])
+        + Trả về Accepted.
+    - Nếu bấm 'Close' thì trả về Rejected và không xoá gì.
     """
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("OutlierDialog")
@@ -22,15 +41,13 @@ class OutlierResultsDialog(QDialog):
         self.resize(1000, 620)
 
         # ========== THEME XANH CHO DIALOG + BẢNG ==========
-        # Nền dialog: xanh dương rất nhạt
-        # Bảng: xanh mint giống Step 6 (#e6fff5, #7fe8c4)
         self.setStyleSheet("""
         /* NỀN & KHUNG DIALOG */
         #OutlierDialog {
             background-color: #eaf3ff;            /* xanh dương rất nhạt */
         }
 
-        /* NÚT CLOSE */
+        /* NÚT (Delete) */
         #OutlierDialog QPushButton {
             background-color: #a9c7ff;
             color: #111;
@@ -85,64 +102,148 @@ class OutlierResultsDialog(QDialog):
         }
         """)
 
-        # ========== LAYOUT ==========
+        # Danh sách row_index được tick để xoá
+        self.rows_to_delete: List[int] = []
+
         outer = QVBoxLayout(self)
 
+               # ===== HEADER =====
         header = QHBoxLayout()
-        header.addWidget(QLabel("Phát hiện điểm bất thường theo 3 phương pháp."), 1)
-        self.btnClose = QPushButton("Close")
-        self.btnClose.clicked.connect(self.accept)
-        header.addWidget(self.btnClose, 0, Qt.AlignRight)
+
+        header.addStretch(1)
+
+        self.btnDelete = QPushButton("Delete selected rows")
+        self.btnDelete.clicked.connect(self._on_delete_selected)
+        header.addWidget(self.btnDelete, 0, Qt.AlignRight)
+
         outer.addLayout(header)
 
-        self.tabs = QTabWidget(self)
-        outer.addWidget(self.tabs, 1)
 
-    def add_tab(self, name: str, df: pd.DataFrame):
+        # ===== TAB WIDGET =====
+        self.tabs = QTabWidget(self)
+
+        # tắt mũi tên scroll để hiện đủ tab
+        tabbar = self.tabs.tabBar()
+        tabbar.setUsesScrollButtons(False)
+        tabbar.setExpanding(False)
+
+        outer.addWidget(self.tabs, 1)
+        # Không còn layout bottom, nút Delete đã được đưa lên header
+
+
+
+
+
+    # ------------------------------------------------------------------
+    # Thêm một tab kết quả
+    # ------------------------------------------------------------------
+    def add_tab(self, name: str, df: Optional[pd.DataFrame]):
+        """
+        Thêm một tab với tên 'name' và dữ liệu 'df'.
+        df mong đợi có ít nhất các cột:
+            row_index | timestamp | column | value | score | method
+        Nếu có thêm cột 'causes' sẽ hiển thị thêm ở cuối.
+        """
         widget = QWidget(self)
-        v = QVBoxLayout(widget)
+        layout = QVBoxLayout(widget)
 
         base_headers = ["row_index", "timestamp", "column", "value", "score", "method"]
         headers = base_headers.copy()
 
-        # Nếu là tab Isolation Forest và có cột causes -> hiển thị thêm
-        has_causes = (df is not None) and ("causes" in df.columns)
-        if has_causes and ("isolation" in name.lower() or "iso" in name.lower()):
+        # nếu DF có cột 'causes' thì thêm vào
+        if df is not None and ("causes" in df.columns):
             headers.append("causes")
 
         table = QTableWidget(widget)
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
-        table.setAlternatingRowColors(True)   # dùng alternate-background-color ở trên
+        table.setAlternatingRowColors(True)
 
         if df is not None and not df.empty:
             table.setRowCount(len(df))
-            for r, (_, row) in enumerate(df.iterrows()):
-                vals = []
-                for h in headers:
-                    if h == "score":
-                        val = row.get("score", "")
-                        if isinstance(val, (int, float)) and not pd.isna(val):
-                            vals.append(f"{val:.6f}")
-                        else:
-                            vals.append("" if pd.isna(val) else str(val))
-                    elif h == "value":
-                        val = row.get("value", "")
-                        vals.append("" if pd.isna(val) else str(val))
-                    elif h == "timestamp":
-                        vals.append(str(row.get("timestamp", "")))
-                    else:
-                        vals.append(row.get(h, ""))
 
-                for c, val in enumerate(vals):
-                    item = QTableWidgetItem(str(val))
-                    if headers[c] in ("row_index", "score"):
-                        item.setTextAlignment(Qt.AlignCenter)
-                    table.setItem(r, c, item)
+            for r, (_, row) in enumerate(df.iterrows()):
+                # --- row_index (checkable) ---
+                ridx = row.get("row_index", "")
+                idx_item = QTableWidgetItem(str(ridx))
+                idx_item.setTextAlignment(Qt.AlignCenter)
+                idx_item.setFlags(idx_item.flags() | Qt.ItemIsUserCheckable)
+                idx_item.setCheckState(Qt.Unchecked)
+                table.setItem(r, 0, idx_item)
+
+                # --- timestamp ---
+                ts = str(row.get("timestamp", ""))
+                table.setItem(r, 1, QTableWidgetItem(ts))
+
+                # --- column ---
+                col_name = str(row.get("column", ""))
+                table.setItem(r, 2, QTableWidgetItem(col_name))
+
+                # --- value ---
+                val = row.get("value", "")
+                if isinstance(val, (int, float)) and not pd.isna(val):
+                    txt_val = f"{val:.6g}"
+                else:
+                    txt_val = "" if pd.isna(val) else str(val)
+                table.setItem(r, 3, QTableWidgetItem(txt_val))
+
+                # --- score ---
+                score = row.get("score", "")
+                if isinstance(score, (int, float)) and not pd.isna(score):
+                    txt_score = f"{score:.6f}"
+                else:
+                    txt_score = "" if pd.isna(score) else str(score)
+                score_item = QTableWidgetItem(txt_score)
+                score_item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(r, 4, score_item)
+
+                # --- method ---
+                method = str(row.get("method", ""))
+                table.setItem(r, 5, QTableWidgetItem(method))
+
+                # --- causes (nếu có) ---
+                if "causes" in headers:
+                    cidx = headers.index("causes")
+                    causes_str = str(row.get("causes", ""))
+                    table.setItem(r, cidx, QTableWidgetItem(causes_str))
 
             table.resizeColumnsToContents()
         else:
             table.setRowCount(0)
 
-        v.addWidget(table)
+        layout.addWidget(table)
         self.tabs.addTab(widget, name)
+
+    # ------------------------------------------------------------------
+    # Gom row_index đã tick ở mọi tab khi bấm Delete selected rows
+    # ------------------------------------------------------------------
+    def _on_delete_selected(self):
+        rows = set()
+
+        for t_idx in range(self.tabs.count()):
+            page = self.tabs.widget(t_idx)
+            if not page:
+                continue
+
+            table = page.findChild(QTableWidget)
+            if table is None:
+                continue
+
+            # cột 0 = row_index (checkable)
+            for r in range(table.rowCount()):
+                item = table.item(r, 0)
+                if not item:
+                    continue
+                if item.checkState() == Qt.Checked:
+                    try:
+                        ridx = int(item.text())
+                        rows.add(ridx)
+                    except ValueError:
+                        pass
+
+        if not rows:
+            QMessageBox.information(self, "No selection", "Chưa tick dòng nào để xoá.")
+            return
+
+        self.rows_to_delete = sorted(rows)
+        self.accept()
