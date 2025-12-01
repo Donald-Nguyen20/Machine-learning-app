@@ -112,3 +112,4 @@ QHeaderView::section {
   font-weight: 600;
 }
 
+

@@ -30,18 +30,39 @@
 #MLDashboardWindow #mlViewport  { background: #f5f7fb; }
 #MLDashboardWindow #mlScroll    { background: transparent; border: none; }
 #MLDashboardWindow #mlContainer { background: transparent; }
-#btnDetectOutlier {
-  background: #ffe2de;                  /* cùng palette step3 */
+/* Style chung cho 3 nút con: Detect Outlier, Regression, Classification */
+#btnDetectOutlier,
+#btnRegression,
+#btnClassification {
   border: 1px solid rgba(0,0,0,0.10);
-  border-radius: 14px;                  /* bo mềm hơn chút */
+  border-radius: 14px;      /* bo giống nút Detect Outlier cũ */
   font-weight: 700;
-  font-size: 13.5pt;                    /* chữ to hơn rõ */
-  padding: 6px 16px;                    /* giảm chiều cao, mở ngang */
-  min-height: 42px;                     /* thấp hơn StepCard */
-  min-width: 180px;                     /* vừa phải, không quá dài */
+  font-size: 14pt;          /* tăng nhẹ cho cả 3 nút, anh chỉnh 13.5–16 tuỳ ý */
+  padding: 6px 16px;
+  min-height: 42px;
+  min-width: 180px;
+}
+
+/* NỀN RIÊNG CHO TỪNG LOẠI NÚT */
+
+/* Detect Outlier: giữ nguyên màu cũ */
+#btnDetectOutlier {
+  background: #ffe2de;      /* màu nền như trước */
 }
 #btnDetectOutlier:hover {
   border-color: rgba(0,0,0,0.25);
-  background: #ff8f86;                  /* hover sáng hơn nhẹ */
+  background: #ff8f86;      /* màu hover như trước */
+}
+
+/* Regression & Classification: dùng palette Step 5 */
+#btnRegression,
+#btnClassification {
+  background: #eaf3ff;      /* màu nền giống Step 5 */
+}
+
+#btnRegression:hover,
+#btnClassification:hover {
+  border-color: rgba(0,0,0,0.25);
+  background: #8fb8ff;      /* dùng màu badge Step 5 làm màu hover */
 }
 

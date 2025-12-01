@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QComboBox,
 )
-
+from PySide6.QtCore import Qt
 
 class OutlierResultsDialog(QDialog):
     """
@@ -39,7 +39,7 @@ class OutlierResultsDialog(QDialog):
         self.setObjectName("OutlierDialog")
         self.setWindowTitle("Outlier Detection — Results")
         self.resize(1000, 620)
-
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMinMaxButtonsHint | Qt.WindowSystemMenuHint)
         # ========== THEME XANH CHO DIALOG + BẢNG ==========
         self.setStyleSheet("""
         /* NỀN & KHUNG DIALOG */

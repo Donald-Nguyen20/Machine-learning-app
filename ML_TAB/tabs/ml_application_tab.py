@@ -26,9 +26,12 @@ from ML_TAB.Steps.Step3.outlier_tools import (
     detect_outliers_knn,
     combine_outlier_results,
 )
-
+from ML_TAB.Steps.Step4.line_visualization_dialog import DataLinePlotDialog
 from ML_TAB.Steps.Step3.outlier_dialog import OutlierResultsDialog
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox, QComboBox
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from ML_TAB.Steps.Step4.line_visualization_dialog import DataLinePlotDialog
 
 
 
@@ -64,9 +67,10 @@ class MLApplicationTab(QWidget):
         vp.setObjectName("mlViewport")
         vp.setAttribute(Qt.WA_StyledBackground, True)  # Quan trọng để nền QSS có hiệu lực
 
-        self.Rawdata = None   # <-- THÊM: lưu DataFrame cho các bước sau dùng
-        self.raw_df: pd.DataFrame | None = None
-        self.cleaned_df: pd.DataFrame | None = None
+        self.Rawdata = None
+        self.raw_df = None
+        self.cleaned_df = None
+
 
         # HBox chứa các StepCard
         self.h = QHBoxLayout(container)
@@ -109,7 +113,7 @@ class MLApplicationTab(QWidget):
                 # 3.1) Step 3 card (giữ như cũ)
                 vlay.addWidget(card, 0, Qt.AlignTop)
 
-                # 3.2) Nút con “Detect Outlier” — CHỈ THIẾT KẾ, CHƯA GẮN GÌ
+                # 3.2) Nút con “Detect Outlier”
                 btn = QPushButton("Detect Outlier", box)
                 btn.setObjectName("btnDetectOutlier")
                 btn.setFixedSize(CARD_W, CARD_H)     # kích thước BẰNG Step 3
@@ -125,12 +129,48 @@ class MLApplicationTab(QWidget):
                 # (tuỳ chọn) lưu tham chiếu nếu cần dùng sau
                 self.btnDetectOutlier = btn
 
+            elif cfg["step"] == 5:
+                # === CỘT STEP 5: card ở trên, 2 NÚT CON ở dưới ===
+                box = QFrame(self)
+                vlay = QVBoxLayout(box)
+                vlay.setContentsMargins(0, 0, 0, 0)
+                vlay.setSpacing(10)
+
+                # 5.1) Step 5 card (Model building)
+                vlay.addWidget(card, 0, Qt.AlignTop)
+
+                # 5.2) Nút Regression
+                btn_reg = QPushButton("Regression", box)
+                btn_reg.setObjectName("btnRegression")
+                btn_reg.setFixedSize(CARD_W, CARD_H)
+                
+                vlay.addWidget(btn_reg, 0, Qt.AlignTop)
+                btn_reg.clicked.connect(self._on_regression_clicked)
+
+                # 5.3) Nút Classification
+                btn_clf = QPushButton("Classification", box)
+                btn_clf.setObjectName("btnClassification")
+                btn_clf.setFixedSize(CARD_W, CARD_H)
+                vlay.addWidget(btn_clf, 0, Qt.AlignTop)
+                btn_clf.clicked.connect(self._on_classification_clicked)
+
+                # Đưa CỘT Step 5 (card + 2 nút con) vào HBox
+                self.h.addWidget(box, 0, Qt.AlignTop)
+
+                # Card Step 5 vẫn click được như cũ (nếu sau này dùng)
+                card.clicked.connect(self._on_step_clicked)
+
+                # Lưu tham chiếu nếu cần
+                self.btnRegression = btn_reg
+                self.btnClassification = btn_clf
+
             else:
                 # Các step khác giữ nguyên: chỉ có card
                 self.h.addWidget(card, 0, Qt.AlignTop)
                 card.clicked.connect(self._on_step_clicked)
 
             self.cards.append(card)
+
 
 
     def _on_step_clicked(self, step_no: int):
@@ -181,7 +221,10 @@ class MLApplicationTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Lỗi Step 2", str(e))
             return
-
+        # --- STEP 4: Data visualization (Line) ---
+        if step_no == 4:
+            self._show_line_visualization()
+            return
         # === CÁC STEP KHÁC (mặc định như cũ) ===
         if step_no != 7:
             print(f"[UI] Step {step_no} clicked")
@@ -278,4 +321,53 @@ class MLApplicationTab(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Lỗi Detect Outlier", str(e))
+    def _on_regression_clicked(self):
+        """
+        Handler cho nút Regression dưới Step 5.
+        Tạm thời chỉ hiện thông báo để test UI.
+        Sau này sẽ gọi dialog / pipeline Regression ở đây.
+        """
+        if self.cleaned_df is None:
+            QMessageBox.warning(
+                self,
+                "Chưa có dữ liệu",
+                "Hãy chạy Step 1 (và xử lý outlier ở Step 3 nếu cần) trước khi build Regression model."
+            )
+            return
 
+        print("[UI] Step 5 - Regression clicked")
+        QMessageBox.information(
+            self,
+            "Regression",
+            "Regression button clicked (Step 5). Logic training sẽ được thêm sau."
+        )
+
+    def _on_classification_clicked(self):
+        """
+        Handler cho nút Classification dưới Step 5.
+        Tạm thời chỉ hiện thông báo để test UI.
+        Sau này sẽ gọi dialog / pipeline Classification ở đây.
+        """
+        if self.cleaned_df is None:
+            QMessageBox.warning(
+                self,
+                "Chưa có dữ liệu",
+                "Hãy chạy Step 1 (và xử lý outlier ở Step 3 nếu cần) trước khi build Classification model."
+            )
+            return
+
+        print("[UI] Step 5 - Classification clicked")
+        QMessageBox.information(
+            self,
+            "Classification",
+            "Classification button clicked (Step 5). Logic training sẽ được thêm sau."
+        )
+
+    def _show_line_visualization(self):
+        # Chọn nguồn dữ liệu: ưu tiên raw_df / cleaned_df
+        if self.raw_df is None and self.cleaned_df is None:
+            QMessageBox.warning(self, "Chưa có dữ liệu", "Hãy chạy Step 1 để nạp dữ liệu trước.")
+            return
+
+        dlg = DataLinePlotDialog(self.raw_df, self.cleaned_df, parent=self)
+        dlg.exec()
